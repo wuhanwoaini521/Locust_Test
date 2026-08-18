@@ -27,7 +27,8 @@
 git clone https://github.com/wuhanwoaini521/Locust_Test.git
 cd Locust_Test
 
-pip install locust
+# 使用 uv 安装依赖（自动创建 .venv）
+uv sync
 ```
 
 ## 🚀 使用
@@ -74,7 +75,9 @@ Locust_Test/
 ├── report/                 # 生成 HTML 报告（已 gitignore）
 ├── logs/                   # 运行日志（已 gitignore）
 ├── locustfile.py           # 压测主脚本（入口）
-└── main.py                 # 压测主程序
+├── main.py                 # 压测主程序
+├── pyproject.toml          # uv 依赖管理
+└── uv.lock                 # uv 锁定的依赖版本
 ```
 
 ## ⚙️ 关键配置说明
