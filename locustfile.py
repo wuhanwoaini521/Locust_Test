@@ -1,41 +1,40 @@
 # coding=utf-8
-import requests
-from locust import HttpUser, TaskSet, task
+"""Locust 性能测试主入口文件 🐝.
+
+简单的 GET/POST 负载示例，可直接运行：
+    locust -f locustfile.py --host=http://your-host
+"""
+
+from locust import HttpUser, task
 
 
-data_list = [
-]
+class WebsiteUser(HttpUser):
+    """Simulated user behavior 模拟用户行为。"""
 
+    # 用户等待时间（毫秒）
+    min_wait = 3000
+    max_wait = 6000
 
-class MyBlogs(TaskSet):
-  
+    @task(2)
+    def get_index(self) -> None:
+        """高频任务：访问首页。"""
+        self.client.get("/")
+
     @task(1)
-    def post_Process_data1(self):
-        # 定义请求头
-        header = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36"}
-        
-		
-        req = self.client.post("/Process", data=data_list[0],
-                               headers=header, verify=False)
-							   
-		print(req)
-		
-		if req.status_code == 200:
-            print("success")
-        else:
-            print("fails")
-	
-	
-			
-
-
-class websitUser(HttpUser):
-    tasks = [MyBlogs]
-    min_wait = 3000  # 单位为毫秒
-    max_wait = 6000  # 单位为毫秒
+    def post_process(self) -> None:
+        """低频任务：提交数据到 /Process。"""
+        payload = {"hello": "playwright", "from": "locust"}
+        headers = {"Content-Type": "application/json"}
+        with self.client.post(
+            "/Process", json=payload, headers=headers, catch_response=True
+        ) as resp:
+            if resp.status_code != 200:
+                resp.failure(f"请求失败，状态码: {resp.status_code}")
+            else:
+                resp.success()
 
 
 if __name__ == "__main__":
     import os
-    os.system("locust -f locustfile.py --host=http://xxxxxxxx")
+
+    os.system("locust -f locustfile.py --host=http://localhost:8000")

@@ -1,157 +1,152 @@
+# coding=utf-8
+"""工具函数库 🛠️.
+
+提供 JSON 对比、配置文件创建、locust 命令启动等辅助能力。
+"""
+
 import json
 import os
-import sys
-from config.load_config import Config_Operation
-from config.log_config import Logger
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from config.load_config import ConfigOperation
+from config.log_config import ROOT_PATH, Logger
 
 logger = Logger()
 
-current_directory = os.path.dirname(os.path.abspath(__file__))
-root_path = os.path.abspath(os.path.dirname(current_directory) + os.path.sep + ".")
-sys.path.append(root_path)
 
-# 判断两段json是否相等
-flag_list = []
+def compare_json(src: Any, dst: Any) -> List[bool]:
+    """递归比较两段数据结构是否完全一致。
 
+    返回不相等位置的结果列表，空列表表示完全相等。
+    """
+    flag_list: List[bool] = []
 
-def cmp(src_data, dst_data):
-    flag = True
-    if isinstance(src_data, dict):
-        """若为dict格式"""
-        for key in dst_data:
-            if key not in src_data:
-                # print("src不存在这个key%s" % key)
-                # flag = False
+    def _cmp(cur_src: Any, cur_dst: Any) -> None:
+        if isinstance(cur_src, dict):
+            if not isinstance(cur_dst, dict):
                 flag_list.append(False)
-        for key in src_data:
-            if key in dst_data:
-                """递归"""
-                cmp(src_data[key], dst_data[key])
-            else:
-                # print("dst不存在这个key %s" % key)
-                # flag = False
+                return
+            for key in cur_dst:
+                if key not in cur_src:
+                    flag_list.append(False)
+            for key in cur_src:
+                if key in cur_dst:
+                    _cmp(cur_src[key], cur_dst[key])
+                else:
+                    flag_list.append(False)
+        elif isinstance(cur_src, list):
+            if not isinstance(cur_dst, list) or len(cur_src) != len(cur_dst):
                 flag_list.append(False)
-    elif isinstance(src_data, list):
-        """若为list格式"""
-        if len(src_data) != len(dst_data):
-            print("list len: '{}' != '{}'".format(len(src_data), len(dst_data)))
-        # for src_list, dst_list in zip(sorted(src_data), sorted(dst_data)):
-        for src_list, dst_list in zip(src_data, dst_data):
-            """递归"""
-            cmp(src_list, dst_list)
-    else:
-        if str(src_data) != str(dst_data):
-            # print("该值不相等：% s" % src_data)
-            flag_list.append(False)
+                return
+            for src_item, dst_item in zip(cur_src, cur_dst):
+                _cmp(src_item, dst_item)
+        else:
+            if str(cur_src) != str(cur_dst):
+                flag_list.append(False)
 
+    _cmp(src, dst)
     return flag_list
 
 
-# 读取json文件
-def read_json(file):
-    return json.load(open(file, 'r', encoding="utf-8"))
+def read_json(file_path: str) -> Any:
+    """读取 JSON 文件并返回解析后的对象。"""
+    return json.load(open(file_path, "r", encoding="utf-8"))
 
 
-# 创建配置文件 master
-def create_master(filename, section_name):
-    logger.info("=====检查master配置文件=====")
-    file_path = root_path + os.path.sep + filename
-    master_is_exists = os.path.exists(file_path)
-
-    if not master_is_exists:
-        logger.info("=====master配置文件不存在，创建master配置文件=====")
-        with open(file_path, "w", encoding='utf-8') as f:
-            f.write(f"[{section_name}]")
-
-    conf = Config_Operation(filename)
-    section_list = conf.get_section()
-    if section_name not in section_list:
+def create_master_config(filename: str, section_name: str) -> None:
+    """创建 master 配置文件（若不存在）。"""
+    logger.info("=====检查 master 配置文件=====")
+    file_path = ROOT_PATH / filename
+    if not file_path.exists():
+        logger.info("=====master 配置文件不存在，创建 master 配置文件=====")
+        file_path.touch()
+    conf = ConfigOperation(filename)
+    if section_name not in conf.get_section():
         conf.add_section(section_name)
 
 
-# 创建配置文件 slave
-def create_slave(section_name, kwargs, slave_num=4):
+def create_worker_config(
+    kwargs: Dict[str, Any], worker_num: int = 4
+) -> List[str]:
+    """根据 worker_num 生成指定数量的 worker 配置文件。
+
+    返回生成的配置文件路径列表。
     """
-    根据slave_num创建slave数量
-    :param slave_num:  想要创建的slave数量
-    :return:
-    """
-    logger.info("=====创建slaver配置文件=====")
-    slave_config_module = "locust_slave%s.conf"
-    slave_name = []
-    for i in range(1, slave_num + 1):
-        with open(slave_config_module % i, "w", encoding='utf-8') as f:
-            con = Config_Operation(slave_config_module % i)
-            con.add_config(section_name, kwargs)
-        slave_name.append(slave_config_module % i)
-    return slave_name
+    logger.info("=====创建 worker 配置文件=====")
+    worker_config_name = "locust_worker{}.conf"
+    worker_names = []
+    for i in range(1, worker_num + 1):
+        fname = worker_config_name.format(i)
+        conf = ConfigOperation(fname)
+        conf.add_config("system", kwargs)
+        worker_names.append(fname)
+    return worker_names
 
 
-# 修改配置文件
-def update_master(filename, section_name, master_kwargs):
+def update_master_config(
+    filename: str, section_name: str, master_kwargs: Dict[str, Any]
+) -> None:
+    """更新 master 配置文件中传入的键值对。"""
     logger.info("=====检查配置文件是否变更开始=====")
-    conf = Config_Operation(filename)
+    conf = ConfigOperation(filename)
     conf.judge_config(section_name, master_kwargs)
 
 
-# cmd 运行 locust命令
-def run_cmd_locust_config(file_name):
-    os.system(f"locust --config={file_name}.conf")
+def run_locust_with_config(file_stem: str) -> None:
+    """通过 `.conf` 配置启动 locust。"""
+    subprocess.run(f"locust --config={file_stem}.conf", check=False)
 
 
-def run_cmd_locust_native(test_file, host, run_time):
-    os.system(f"locust -f {test_file} --host={host} --headless -u 100 -r 100 --run-time {run_time}")
+def run_locust_native(test_file: str, host: str, run_time: str) -> None:
+    """直接以命令行参数方式启动 locust。"""
+    subprocess.run(
+        f"locust -f {test_file} --host={host} --headless -u 100 -r 100 --run-time {run_time}",
+        check=False,
+    )
 
 
-# 判断配置文件是否存在，（创建操作）
-def init_confg(filename, section_name, master_kwargs, slave_kwargs, need_master=True, slave_num=4):
+def init_confg(
+    filename: str,
+    section_name: str,
+    master_kwargs: Dict[str, Any],
+    worker_kwargs: Dict[str, Any],
+    need_worker: bool = True,
+    worker_num: int = 4,
+) -> Optional[List[str]]:
+    """初始化配置文件。
+
+    :param need_worker: 是否需要创建 master / worker 分布式测试环境
+    :param worker_num: worker 节点数量
+    :return: worker 配置文件路径列表（若 need_worker 为 False 返回 None）
     """
-    初始化配置文件
-    :param need_master:  是否需要创建 master和slave分布式测试环境
-    :param filename:
-    :param section_name:
-    :param master_kwargs:
-    :param slave_kwargs:
-    :param slave_num:
-    :return:
-    """
-    slave_name = None
-    create_master(filename, section_name)
-    if need_master:
-        slave_name = create_slave(section_name, slave_kwargs, slave_num)
-    update_master(filename, section_name, master_kwargs)
-    return slave_name
+    create_master_config(filename, section_name)
+    worker_names = None
+    if need_worker:
+        worker_names = create_worker_config(worker_kwargs, worker_num)
+    update_master_config(filename, section_name, master_kwargs)
+    return worker_names
 
 
-def del_slave_config(file_name):
-    """
-    删除slave配置
-    :param file_name:
-    :return:
-    """
-    slave_names = os.listdir(root_path)
-    # print(slave_names)
-    for slave in slave_names:
-        if slave.startswith(file_name):
-            os.remove(root_path + os.path.sep + slave)
+def _delete_configs(prefix: str) -> None:
+    """删除指定前缀的配置文件。"""
+    for item in os.listdir(ROOT_PATH):
+        if item.startswith(prefix) and item.endswith(".conf"):
+            (ROOT_PATH / item).unlink()
+            logger.info(f"删除配置文件: {item}")
 
 
-def del_master_config(file_name):
-    """
-    删除master配置
-    :param file_name:
-    :return:
-    """
-    master_names = os.listdir(root_path)
-    # print(slave_names)
-    for master in master_names:
-        if master.startswith(file_name):
-            os.remove(root_path + os.path.sep + master)
+def del_worker_config() -> None:
+    """删除所有 worker 配置文件。"""
+    _delete_configs("locust_worker")
 
 
-if __name__ == '__main__':
-    # conf_dict = {"a": "1"}
-    # create_slave("system", conf_dict)
+def del_master_config() -> None:
+    """删除所有 master 配置文件。"""
+    _delete_configs("locust_master")
 
-    # create_master("locust_master.conf", "system")
-    del_slave_config()
+
+if __name__ == "__main__":
+    del_worker_config()
+    del_master_config()

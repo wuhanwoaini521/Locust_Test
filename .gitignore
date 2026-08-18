@@ -1,0 +1,30 @@
+# Python 🐍
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# IDE 💻
+.idea/
+.vscode/
+*.iml
+
+# 测试产物 🧪
+report/
+logs/
+*.html
+*.log
+
+# 本地配置文件 ⚙️
+locust_master.conf
+locust_worker*.conf
+
+# 系统文件 🖥️
+.DS_Store
+Thumbs.db
+
+# 环境变量 🔐
+.env

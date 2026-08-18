@@ -1,106 +1,114 @@
 # coding=utf-8
-from datetime import datetime
-from config.load_config import Config_Operation, Logger
-import os
-import sys
-from config.utils import create_slave, run_cmd_locust_config, init_confg, create_master, del_slave_config, del_master_config
+"""Locust 压测主程序 🚀.
+
+流程：
+1. 配置 locust 的 `.conf` 配置文件
+2. 启动 locust（支持 master / worker 分布式）
+
+用法：
+    python main.py
+"""
+
 import threading
+from datetime import datetime
+from pathlib import Path
 
-current_directory = os.path.dirname(os.path.abspath(__file__))
-root_path = os.path.abspath(os.path.dirname(
-    current_directory) + os.path.sep + ".")
-sys.path.append(root_path)
+from config.log_config import Logger
+from config.utils import (
+    del_master_config,
+    del_worker_config,
+    init_confg,
+    run_locust_with_config,
+)
 
-"""
-1. 先配置locust的配置文件
-2. 启动locust
-"""
+ROOT_PATH = Path(__file__).resolve().parent
 
-# locust配置文件
-pre_master_name = "locust_master"
-pre_slave_name = "locust_slave"
-section_name = "system"
+# 配置文件前缀名
+PRE_MASTER_NAME = "locust_master"
+PRE_WORKER_NAME = "locust_worker"
+SECTION_NAME = "system"
 
-# 生成report和log的文件名（根据时间）
-now = datetime.now()
-timestr = now.strftime("%Y_%m_%d_%H_%M_%S")
+# 基于时间的报告 / 日志文件名
+timestr = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+report_path = ROOT_PATH / "report" / f"locust_{timestr}_report.html"
+locust_log_path = ROOT_PATH / "logs" / f"locust_{timestr}.log"
+test_file = ROOT_PATH / "tests" / "locustfile.py"  # 负载测试脚本
 
-# report和log地址
-report_path = f".\\report\\locust_{timestr}_report.html"
-locust_log_path = f".\\logs\\locust_{timestr}.log"
-file_name = ".\\tests\\locustfile.py"
-master_config_name = f"{pre_master_name}.conf"
-
-# 实例化 - 日志功能
+# 实例化日志与配置工具
 logger = Logger()
 
-# 实例化 - locust.conf配置文件功能
-c_operation = Config_Operation(pre_master_name)
-
-# 配置文件(默认)
+# 默认配置
 conf_dict = {
-    "locustfile": file_name,
+    "locustfile": str(test_file),
     "headless": "true",
     "host": "http://192.168.1.200:8000",
     "users": "100",
     "spawn-rate": "100",
     "run-time": "10s",
-    "html": report_path,
+    "html": str(report_path),
     "print-stats": "false",
-    "logfile": locust_log_path
+    "logfile": str(locust_log_path),
 }
 
-# 是否需要master 和slave 组合
-master_config = {
-    "master": "true"
-}
+# 是否需要 master / worker 分布式组合
+need_worker = False
 
-# slave 配置
-slave_dict = {
-    "locustfile": file_name,
+# worker 配置
+worker_dict = {
+    "locustfile": str(test_file),
     "headless": "true",
     "worker": "true",
 }
 
-need_master = False
-if need_master:
-    conf_dict.update(master_config)
 
+def main() -> None:
+    """执行完整的 locust 压测流程。"""
+    # 确保 report / logs 目录存在
+    (ROOT_PATH / "report").mkdir(exist_ok=True)
+    (ROOT_PATH / "logs").mkdir(exist_ok=True)
 
-if __name__ == '__main__':
-
-    logger.info("=====清空slaver配置文件=====")
-    del_slave_config(pre_slave_name)
-    logger.info("=====清空master配置文件=====")
-    del_master_config(pre_master_name)
+    logger.info("=====清理 worker 配置文件=====")
+    del_worker_config()
+    logger.info("=====清理 master 配置文件=====")
+    del_master_config()
 
     logger.info("=====初始化配置文件=====")
+    worker_names = init_confg(
+        f"{PRE_MASTER_NAME}.conf",
+        SECTION_NAME,
+        conf_dict,
+        worker_dict,
+        need_worker=need_worker,
+        worker_num=3,
+    )
 
-    # 判断是否需要创建master文件
-    slave_name = init_confg(master_config_name, section_name,
-                            conf_dict, slave_dict, need_master=need_master, slave_num=3)
-    # print(slave_name)
-    logger.info("=====开始执行locust测试=====")
-    logger.info(" >>>>> 创建master线程")
-    slave_list = []
+    logger.info("=====开始执行 locust 测试=====")
+    logger.info(" >>>>> 创建 master 线程")
 
-    # 启动master主线程
-    t1 = threading.Thread(target=run_cmd_locust_config,
-                          args=(pre_master_name,))
-    t1.start()
+    # 启动 master 主线程
+    master_thread = threading.Thread(
+        target=run_locust_with_config, args=(PRE_MASTER_NAME,)
+    )
+    master_thread.start()
 
-    if slave_name is not None:
-        logger.info(" >>>>> 创建slave线程")
-        # 启动slave线程
-        for i in slave_name:
-            s_name = i[:-5]
-            t = threading.Thread(target=run_cmd_locust_config, args=(s_name,))
-            slave_list.append(t)
-        for t in slave_list:
+    if worker_names:
+        logger.info(" >>>>> 创建 worker 线程")
+        worker_threads = [
+            threading.Thread(target=run_locust_with_config, args=(name[:-5],))
+            for name in worker_names
+        ]
+        for t in worker_threads:
             t.start()
-        for t in slave_list:
+        for t in worker_threads:
             t.join()
 
-    t1.join()
+    master_thread.join()
     logger.info(
-        f"=====locust执行结束=====\n >>>>>报告地址：{report_path} \n >>>>>log地址：{locust_log_path}")
+        f"=====locust 执行结束=====\n"
+        f" >>>>>报告地址：{report_path}\n"
+        f" >>>>>log 地址：{locust_log_path}"
+    )
+
+
+if __name__ == "__main__":
+    main()
