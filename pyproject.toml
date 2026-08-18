@@ -1,0 +1,14 @@
+[project]
+name = "locust-test"
+version = "0.1.0"
+description = "基于 Python Locust 的性能测试/压测示例项目 🐝"
+requires-python = ">=3.8"
+dependencies = [
+    "locust>=2.0",
+]
+
+[dependency-groups]
+dev = []
+
+[tool.uv]
+package = false
