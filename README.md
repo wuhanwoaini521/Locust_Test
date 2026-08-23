@@ -11,15 +11,17 @@
 - 📄 **自动配置**：`.conf` 配置文件自动生成 / 比对 / 更新
 - 📝 **内置日志**：控制台 + 文件双输出，按天归档
 - 📊 **结果报告**：自动生成 HTML 报告
-- 🧪 **校验型压测**：接口返回与期望结果自动比对
+- 🔍 **校验型压测**：接口返回与期望结果自动比对，差异带字段路径，一眼定位问题
+- 🧪 **单元测试**：核心工具函数（JSON 对比、配置读写）离线单元测试覆盖
 
 ## 🛠️ 技术栈
 
 | 技术 | 说明 |
 |------|------|
 | 🐍 Python | 3.8+ |
-| 🐝 Locust | 2.x |
+| 🐝 Locust | 2.x（用户等待时间使用 `wait_time = between()` 标准写法） |
 | 📦 configparser | 标准库配置读写 |
+| 🧪 pytest + ruff | dev 依赖：单元测试与代码检查 |
 
 ## 📦 安装
 
@@ -61,6 +63,14 @@ python main.py
 2. 修改 `worker_num` 控制 worker 数量
 3. 运行 `python main.py`
 
+## 🧪 运行单元测试
+
+核心工具函数全部有离线单元测试，不依赖任何外部服务，克隆即可跑：
+
+```bash
+uv run pytest
+```
+
 ## 📁 项目结构
 
 ```
@@ -70,6 +80,8 @@ Locust_Test/
 │   ├── load_config.py      # configparser 配置读写封装
 │   ├── log_config.py       # 日志系统
 │   └── utils.py            # 工具函数（JSON 对比、配置生成、locust 启动）
+├── unit_tests/
+│   └── test_utils.py       # 单元测试：JSON 对比 / 配置读写
 ├── tests/
 │   └── locustfile.py       # 校验型压测脚本（接口返回比对）
 ├── report/                 # 生成 HTML 报告（已 gitignore）
@@ -104,7 +116,16 @@ payload   = {"example": "data"}   # 请求参数
 expected  = {"code": 0}           # 期望返回
 ```
 
-Locust 会根据 `compare_json` 的比对结果，把不一致的请求标记为 `failure`。
+Locust 会调用 `compare_json(expected, actual)` 做递归比对，把不一致的请求标记为 `failure`。
+
+差异信息是带字段路径的可读字符串，直接出现在压测报告里，例如：
+
+```text
+data.code: 期望 0，实际 500
+data.list: 长度不一致，期望 3，实际 2
+```
+
+> ⚠️ 注意：Locust 2.x 已经移除了老式的 `min_wait / max_wait` 属性，本项目统一使用 `wait_time = between(3, 6)`（单位：秒）。
 
 ## 📄 License
 

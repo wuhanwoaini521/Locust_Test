@@ -5,7 +5,7 @@
 一体的负载脚本。
 """
 
-from locust import HttpUser, task
+from locust import HttpUser, between, task
 
 from config.utils import compare_json
 
@@ -13,8 +13,8 @@ from config.utils import compare_json
 class ProcessTask(HttpUser):
     """对 /Process 接口做带返回校验的性能测试。"""
 
-    min_wait = 3000  # 单位为毫秒
-    max_wait = 6000
+    # 每个任务之间随机等待 3~6 秒（Locust 2.x 标准写法）
+    wait_time = between(3, 6)
 
     @task
     def post_process(self) -> None:
@@ -29,18 +29,21 @@ class ProcessTask(HttpUser):
             "code": 0
         }
         with self.client.post(
-            "/Process", json=payload, headers=headers, verify=False,
+            "/Process", json=payload, headers=headers,
             catch_response=True, name="data1_test",
         ) as resp:
-            # 简化校验：对返回做 JSON 对比
+            # 校验：对实际返回与期望做 JSON 对比，diff 为差异明细列表
             diff = compare_json(expected, resp.json())
             if not diff:
                 resp.success()
             else:
-                resp.failure(f"返回数据与期望不一致: {diff}")
+                resp.failure(f"返回数据与期望不一致: {'; '.join(diff)}")
 
 
 if __name__ == "__main__":
-    import os
+    import subprocess
 
-    os.system("locust -f locustfile.py --host=http://192.168.1.200:8000")
+    subprocess.run(
+        ["locust", "-f", "locustfile.py", "--host=http://192.168.1.200:8000"],
+        check=False,
+    )

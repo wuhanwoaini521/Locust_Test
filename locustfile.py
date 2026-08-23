@@ -5,15 +5,14 @@
     locust -f locustfile.py --host=http://your-host
 """
 
-from locust import HttpUser, task
+from locust import HttpUser, between, task
 
 
 class WebsiteUser(HttpUser):
     """Simulated user behavior 模拟用户行为。"""
 
-    # 用户等待时间（毫秒）
-    min_wait = 3000
-    max_wait = 6000
+    # 每个任务之间随机等待 3~6 秒（Locust 2.x 标准写法）
+    wait_time = between(3, 6)
 
     @task(2)
     def get_index(self) -> None:
@@ -35,6 +34,9 @@ class WebsiteUser(HttpUser):
 
 
 if __name__ == "__main__":
-    import os
+    import subprocess
 
-    os.system("locust -f locustfile.py --host=http://localhost:8000")
+    subprocess.run(
+        ["locust", "-f", "locustfile.py", "--host=http://localhost:8000"],
+        check=False,
+    )

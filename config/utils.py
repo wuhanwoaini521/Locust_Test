@@ -16,43 +16,66 @@ from config.log_config import ROOT_PATH, Logger
 logger = Logger()
 
 
-def compare_json(src: Any, dst: Any) -> List[bool]:
-    """递归比较两段数据结构是否完全一致。
+def compare_json(expected: Any, actual: Any) -> List[str]:
+    """递归比较两段数据结构，返回差异明细。
 
-    返回不相等位置的结果列表，空列表表示完全相等。
+    每条差异为人类可读的字符串，带字段路径，方便直接贴进压测报告：
+
+        ["data.code: 期望 0，实际 500"]
+
+    返回空列表表示两者完全一致。
     """
-    flag_list: List[bool] = []
+    diffs: List[str] = []
 
-    def _cmp(cur_src: Any, cur_dst: Any) -> None:
-        if isinstance(cur_src, dict):
-            if not isinstance(cur_dst, dict):
-                flag_list.append(False)
+    def _type_name(value: Any) -> str:
+        return type(value).__name__
+
+    def _join(path: str, key: Any) -> str:
+        return f"{path}.{key}" if path else str(key)
+
+    def _cmp(cur_expected: Any, cur_actual: Any, path: str) -> None:
+        label = path or "root"
+        if isinstance(cur_expected, dict):
+            if not isinstance(cur_actual, dict):
+                diffs.append(
+                    f"{label}: 类型不一致，期望 dict，实际 {_type_name(cur_actual)}"
+                )
                 return
-            for key in cur_dst:
-                if key not in cur_src:
-                    flag_list.append(False)
-            for key in cur_src:
-                if key in cur_dst:
-                    _cmp(cur_src[key], cur_dst[key])
+            for key, value in cur_expected.items():
+                if key in cur_actual:
+                    _cmp(value, cur_actual[key], _join(path, key))
                 else:
-                    flag_list.append(False)
-        elif isinstance(cur_src, list):
-            if not isinstance(cur_dst, list) or len(cur_src) != len(cur_dst):
-                flag_list.append(False)
+                    diffs.append(f"{_join(path, key)}: 期望存在该字段，实际缺失")
+            for key in cur_actual:
+                if key not in cur_expected:
+                    diffs.append(f"{_join(path, key)}: 实际多出的字段")
+        elif isinstance(cur_expected, list):
+            if not isinstance(cur_actual, list):
+                diffs.append(
+                    f"{label}: 类型不一致，期望 list，实际 {_type_name(cur_actual)}"
+                )
                 return
-            for src_item, dst_item in zip(cur_src, cur_dst):
-                _cmp(src_item, dst_item)
+            if len(cur_expected) != len(cur_actual):
+                diffs.append(
+                    f"{label}: 长度不一致，期望 {len(cur_expected)}，"
+                    f"实际 {len(cur_actual)}"
+                )
+                return
+            for index, (item_e, item_a) in enumerate(zip(cur_expected, cur_actual)):
+                _cmp(item_e, item_a, f"{path}[{index}]")
         else:
-            if str(cur_src) != str(cur_dst):
-                flag_list.append(False)
+            # 标量统一按字符串比较，兼容 "200" 与 200 这类宽松场景
+            if str(cur_expected) != str(cur_actual):
+                diffs.append(f"{label}: 期望 {cur_expected!r}，实际 {cur_actual!r}")
 
-    _cmp(src, dst)
-    return flag_list
+    _cmp(expected, actual, "")
+    return diffs
 
 
 def read_json(file_path: str) -> Any:
     """读取 JSON 文件并返回解析后的对象。"""
-    return json.load(open(file_path, "r", encoding="utf-8"))
+    with open(file_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def create_master_config(filename: str, section_name: str) -> None:
@@ -95,14 +118,19 @@ def update_master_config(
 
 
 def run_locust_with_config(file_stem: str) -> None:
-    """通过 `.conf` 配置启动 locust。"""
-    subprocess.run(f"locust --config={file_stem}.conf", check=False)
+    """通过 `.conf` 配置启动 locust（参数以列表传递，避免 shell 注入）。"""
+    subprocess.run(["locust", f"--config={file_stem}.conf"], check=False)
 
 
 def run_locust_native(test_file: str, host: str, run_time: str) -> None:
     """直接以命令行参数方式启动 locust。"""
     subprocess.run(
-        f"locust -f {test_file} --host={host} --headless -u 100 -r 100 --run-time {run_time}",
+        [
+            "locust", "-f", test_file,
+            f"--host={host}", "--headless",
+            "-u", "100", "-r", "100",
+            "--run-time", run_time,
+        ],
         check=False,
     )
 
